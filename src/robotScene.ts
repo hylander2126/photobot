@@ -29,9 +29,16 @@ const MIN_TIP_HEIGHT = 0.06;
 
 const HANDLE_IDLE = new THREE.Color('#8a93a3');
 const HANDLE_HOVER = new THREE.Color('#ffb020');
+const HANDLE_BLOCKED = new THREE.Color('#d9480f');
+const RING_RADIUS = 0.24;
+const PITCH_SNAP = (15 * Math.PI) / 180;
+
+type Grab = 'move' | 'rotate';
 
 export class RobotScene {
   onChange?: (s: RobotState) => void;
+  /** Called when a ring rotation is refused because that pitch would move the tip. */
+  onBlocked?: () => void;
 
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
@@ -62,7 +69,9 @@ export class RobotScene {
   private pointer = new THREE.Vector2();
   private dragPlane = new THREE.Plane();
   private grabOffset = new THREE.Vector3();
-  private dragging = false;
+  private dragging: Grab | null = null;
+  // Ring rotation: pitch at grab time, accumulated screen angle, and its sign.
+  private rot = { phi0: 0, lastAngle: 0, total: 0, sign: 1, steps: 0 };
 
   // Kinematic state
   private target = HOME_TARGET.clone();
@@ -417,7 +426,7 @@ export class RobotScene {
 
   private buildHandle() {
     const handle = new THREE.Mesh(
-      new THREE.TorusGeometry(0.24, 0.014, 12, 72),
+      new THREE.TorusGeometry(RING_RADIUS, 0.014, 12, 72),
       new THREE.MeshBasicMaterial({
         color: HANDLE_IDLE,
         transparent: true,
@@ -428,12 +437,6 @@ export class RobotScene {
     );
     handle.renderOrder = 999;
     this.scene.add(handle);
-
-    // Invisible, generous grab zone around the tip.
-    const hit = new THREE.Mesh(new THREE.SphereGeometry(0.28, 16, 12), new THREE.MeshBasicMaterial());
-    hit.visible = false;
-    handle.add(hit);
-    this.hitTargets.push(hit);
     return handle;
   }
 
@@ -509,35 +512,90 @@ export class RobotScene {
     this.raycaster.setFromCamera(this.pointer, this.camera);
   }
 
-  private hitsHandle(e: PointerEvent) {
+  /** The ring's centre and radius in canvas CSS px (y down). */
+  private ringOnScreen() {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const toPx = (v: THREE.Vector3) => {
+      v.project(this.camera);
+      return { x: ((v.x + 1) / 2) * rect.width, y: ((1 - v.y) / 2) * rect.height };
+    };
+    const tip = this.tip.getWorldPosition(new THREE.Vector3());
+    const right = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 0);
+    const c = toPx(tip.clone());
+    const edge = toPx(tip.addScaledVector(right, RING_RADIUS));
+    return { rect, x: c.x, y: c.y, r: Math.hypot(edge.x - c.x, edge.y - c.y) };
+  }
+
+  /** What a press at this point would grab: the ring's edge rotates, inside it (or the tool) moves. */
+  private grabAt(e: PointerEvent): Grab | null {
+    const ring = this.ringOnScreen();
+    const d = Math.hypot(e.clientX - ring.rect.left - ring.x, e.clientY - ring.rect.top - ring.y);
+    const band = Math.max(7, ring.r * 0.22);
+    if (Math.abs(d - ring.r) <= band) return 'rotate';
+    if (d < ring.r) return 'move';
     this.setRay(e);
-    return this.raycaster.intersectObjects(this.hitTargets, false).length > 0;
+    return this.raycaster.intersectObjects(this.hitTargets, false).length > 0 ? 'move' : null;
+  }
+
+  /** Pointer angle around the ring centre, counter-clockwise on screen. */
+  private ringAngle(e: PointerEvent) {
+    const ring = this.ringOnScreen();
+    return Math.atan2(-(e.clientY - ring.rect.top - ring.y), e.clientX - ring.rect.left - ring.x);
   }
 
   // Registered in the capture phase on the container, so it runs before
   // OrbitControls sees the event on the canvas and can swallow it.
   private onPointerDown = (e: PointerEvent) => {
-    if (e.button !== 0 || !this.hitsHandle(e)) return;
+    if (e.button !== 0) return;
+    const grab = this.grabAt(e);
+    if (!grab) return;
     e.stopPropagation();
     e.preventDefault();
-    this.dragging = true;
+    this.dragging = grab;
     this.tween = null;
 
-    const tipWorld = this.tip.getWorldPosition(new THREE.Vector3());
-    const normal = this.camera.getWorldDirection(new THREE.Vector3());
-    this.dragPlane.setFromNormalAndCoplanarPoint(normal, tipWorld);
-    const hit = new THREE.Vector3();
-    if (this.raycaster.ray.intersectPlane(this.dragPlane, hit)) this.grabOffset.subVectors(tipWorld, hit);
-    else this.grabOffset.set(0, 0, 0);
+    if (grab === 'rotate') {
+      // Pitch turns about the arm plane's normal. Seen from that normal's side, a
+      // counter-clockwise screen drag is a positive pitch change; from behind, negative.
+      const tipWorld = this.tip.getWorldPosition(new THREE.Vector3());
+      const normal = new THREE.Vector3(0, 0, 1).applyQuaternion(this.yawG.getWorldQuaternion(new THREE.Quaternion()));
+      const toCam = this.camera.position.clone().sub(tipWorld);
+      const a = this.ringAngle(e);
+      this.rot = { phi0: this.ns.phi, lastAngle: a, total: 0, sign: normal.dot(toCam) >= 0 ? 1 : -1, steps: 0 };
+      this.container.style.cursor = 'grabbing';
+    } else {
+      this.setRay(e);
+      const tipWorld = this.tip.getWorldPosition(new THREE.Vector3());
+      const normal = this.camera.getWorldDirection(new THREE.Vector3());
+      this.dragPlane.setFromNormalAndCoplanarPoint(normal, tipWorld);
+      const hit = new THREE.Vector3();
+      if (this.raycaster.ray.intersectPlane(this.dragPlane, hit)) this.grabOffset.subVectors(tipWorld, hit);
+      else this.grabOffset.set(0, 0, 0);
+      this.container.style.cursor = 'move';
+    }
 
-    this.container.style.cursor = 'grabbing';
-    this.handle.material.color.copy(HANDLE_HOVER);
+    this.handle.material.color.copy(grab === 'rotate' ? HANDLE_HOVER : HANDLE_IDLE);
     window.addEventListener('pointermove', this.onDragMove);
     window.addEventListener('pointerup', this.endDrag);
     window.addEventListener('pointercancel', this.endDrag);
   };
 
   private onDragMove = (e: PointerEvent) => {
+    if (this.dragging === 'rotate') {
+      const a = this.ringAngle(e);
+      this.rot.total += wrapAngle(a - this.rot.lastAngle); // accumulate, so full turns work
+      this.rot.lastAngle = a;
+      const steps = Math.round((this.rot.total * this.rot.sign) / PITCH_SNAP);
+      if (steps === this.rot.steps) return;
+      if (this.setPhi(this.rot.phi0 + steps * PITCH_SNAP)) {
+        this.rot.steps = steps;
+        this.handle.material.color.copy(HANDLE_HOVER);
+      } else {
+        this.handle.material.color.copy(HANDLE_BLOCKED);
+        this.onBlocked?.();
+      }
+      return;
+    }
     this.setRay(e);
     const p = new THREE.Vector3();
     if (!this.raycaster.ray.intersectPlane(this.dragPlane, p)) return;
@@ -546,7 +604,7 @@ export class RobotScene {
 
   private endDrag = () => {
     if (!this.dragging) return;
-    this.dragging = false;
+    this.dragging = null;
     this.container.style.cursor = '';
     this.handle.material.color.copy(HANDLE_IDLE);
     window.removeEventListener('pointermove', this.onDragMove);
@@ -556,9 +614,9 @@ export class RobotScene {
 
   private onHover = (e: PointerEvent) => {
     if (this.dragging || e.buttons !== 0) return;
-    const over = this.hitsHandle(e);
-    this.container.style.cursor = over ? 'grab' : '';
-    this.handle.material.color.copy(over ? HANDLE_HOVER : HANDLE_IDLE);
+    const grab = this.grabAt(e);
+    this.container.style.cursor = grab === 'rotate' ? 'grab' : grab === 'move' ? 'move' : '';
+    this.handle.material.color.copy(grab === 'rotate' ? HANDLE_HOVER : HANDLE_IDLE);
   };
 
   // ---------------------------------------------------------------- loop

@@ -67,6 +67,7 @@ export default function App() {
   useEffect(() => {
     const scene = new RobotScene(viewportRef.current!);
     scene.onChange = setRobot;
+    scene.onBlocked = flashBlocked;
     sceneRef.current = scene;
     applyShared(scene, shared);
     return () => {
@@ -372,7 +373,8 @@ export default function App() {
         <section className="help">
           <span className="label">Controls</span>
           <ul>
-            <li><b>Drag the tool / ring</b> to move the tip (IK)</li>
+            <li><b>Drag inside the ring</b> (or the tool) to move the tip</li>
+            <li><b>Drag the ring's edge</b> to turn the tool in 15° steps</li>
             <li><b>Drag empty space</b> to orbit · right-drag to pan · scroll to zoom</li>
             <li><kbd>←</kbd><kbd>→</kbd> sweep tool pitch (<kbd>Shift</kbd> for big steps)</li>
             <li><kbd>↑</kbd><kbd>↓</kbd> elbow up / down</li>

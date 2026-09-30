@@ -2,6 +2,10 @@
 
 Pose a robot arm in the browser and export it as a transparent PNG.
 
+**Try it: [hylander2126.github.io/photobot](https://hylander2126.github.io/photobot/)**
+
+![Dragging the arm, sweeping the tool pitch, and switching colours and tools](docs/demo.gif)
+
 ## Run
 
 ```bash
@@ -13,14 +17,15 @@ npm run preview  # serve the production build
 
 ## Posing
 
-The arm has 4 joints: base turn, shoulder, elbow, wrist. Drag the tool (or the ring
-around it) and the arm solves its joint angles to follow — the camera stays put while
-you drag, and dragging empty space orbits it instead.
+The arm has 4 joints: base turn, shoulder, elbow, wrist. Drag the tool, or anywhere
+inside the ring around it, and the arm solves its joint angles to follow. The camera
+stays put while you drag, and dragging empty space orbits it instead.
 
 Holding the tip in one place still leaves the arm free to move, so there are two ways
 to change its shape without moving the tip:
 
-- **Tool pitch** — the angle of the tool, on the slider, in the number box (type exact
+- **Tool pitch** — the angle of the tool. Drag the ring's edge (it lights up orange) to
+  turn it in 15° steps, or set it on the slider, in the number box (type exact
   values, ↑/↓ step by 1°), or with `←` / `→` (`Shift` for bigger steps). A value that
   would force the tip to move is refused and the box turns red.
 - **Elbow up / down** — buttons, `↑` / `↓`, or `Space`.
@@ -29,7 +34,8 @@ to change its shape without moving the tip:
 
 | Control | Action |
 | --- | --- |
-| Drag tool / ring | Move the tip |
+| Drag tool / inside ring | Move the tip |
+| Drag ring edge | Turn the tool (15° steps) |
 | Drag empty space | Orbit · right-drag pans · scroll zooms |
 | `←` `→` | Sweep tool pitch (`Shift` = 10°) |
 | `↑` `↓` / `Space` | Elbow up / down |
