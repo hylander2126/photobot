@@ -70,8 +70,9 @@ export class RobotScene {
   private dragPlane = new THREE.Plane();
   private grabOffset = new THREE.Vector3();
   private dragging: Grab | null = null;
-  // Ring rotation: pitch at grab time, accumulated screen angle, and its sign.
-  private rot = { phi0: 0, lastAngle: 0, total: 0, sign: 1, steps: 0 };
+  // Ring rotation: pitch at grab time, accumulated screen angle, its sign, and the
+  // multiple of PITCH_SNAP last applied (null until the first snap).
+  private rot = { phi0: 0, lastAngle: 0, total: 0, sign: 1, snap: null as number | null };
 
   // Kinematic state
   private target = HOME_TARGET.clone();
@@ -530,8 +531,11 @@ export class RobotScene {
   private grabAt(e: PointerEvent): Grab | null {
     const ring = this.ringOnScreen();
     const d = Math.hypot(e.clientX - ring.rect.left - ring.x, e.clientY - ring.rect.top - ring.y);
-    const band = Math.max(7, ring.r * 0.22);
-    if (Math.abs(d - ring.r) <= band) return 'rotate';
+    // The edge band reaches further outward than inward: grabbing just outside the
+    // ring is natural, and the inside stays roomy for moving.
+    const inner = Math.max(6, ring.r * 0.18);
+    const outer = Math.max(12, ring.r * 0.35);
+    if (d >= ring.r - inner && d <= ring.r + outer) return 'rotate';
     if (d < ring.r) return 'move';
     this.setRay(e);
     return this.raycaster.intersectObjects(this.hitTargets, false).length > 0 ? 'move' : null;
@@ -561,7 +565,7 @@ export class RobotScene {
       const normal = new THREE.Vector3(0, 0, 1).applyQuaternion(this.yawG.getWorldQuaternion(new THREE.Quaternion()));
       const toCam = this.camera.position.clone().sub(tipWorld);
       const a = this.ringAngle(e);
-      this.rot = { phi0: this.ns.phi, lastAngle: a, total: 0, sign: normal.dot(toCam) >= 0 ? 1 : -1, steps: 0 };
+      this.rot = { phi0: this.ns.phi, lastAngle: a, total: 0, sign: normal.dot(toCam) >= 0 ? 1 : -1, snap: null };
       this.container.style.cursor = 'grabbing';
     } else {
       this.setRay(e);
@@ -585,10 +589,11 @@ export class RobotScene {
       const a = this.ringAngle(e);
       this.rot.total += wrapAngle(a - this.rot.lastAngle); // accumulate, so full turns work
       this.rot.lastAngle = a;
-      const steps = Math.round((this.rot.total * this.rot.sign) / PITCH_SNAP);
-      if (steps === this.rot.steps) return;
-      if (this.setPhi(this.rot.phi0 + steps * PITCH_SNAP)) {
-        this.rot.steps = steps;
+      // Snap to whole multiples (0°, 15°, 30°, ...), not steps from the starting pitch.
+      const snap = Math.round((this.rot.phi0 + this.rot.total * this.rot.sign) / PITCH_SNAP);
+      if (snap === this.rot.snap) return;
+      if (this.setPhi(snap * PITCH_SNAP)) {
+        this.rot.snap = snap;
         this.handle.material.color.copy(HANDLE_HOVER);
       } else {
         this.handle.material.color.copy(HANDLE_BLOCKED);

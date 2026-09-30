@@ -121,6 +121,7 @@ button.ghost, button.primary {
 }
 button.ghost { border: 1px solid var(--line); background: var(--panel); }
 button.ghost:hover { background: var(--chip); }
+button.ghost:disabled { opacity: 0.6; cursor: progress; }
 button.primary {
   border: 0;
   background: var(--accent);

@@ -25,7 +25,7 @@ Holding the tip in one place still leaves the arm free to move, so there are two
 to change its shape without moving the tip:
 
 - **Tool pitch** — the angle of the tool. Drag the ring's edge (it lights up orange) to
-  turn it in 15° steps, or set it on the slider, in the number box (type exact
+  turn it, snapping to 0°, 15°, 30° and so on; or set it on the slider, in the number box (type exact
   values, ↑/↓ step by 1°), or with `←` / `→` (`Shift` for bigger steps). A value that
   would force the tip to move is refused and the box turns red.
 - **Elbow up / down** — buttons, `↑` / `↓`, or `Space`.
@@ -60,6 +60,9 @@ control how it sits behind the robot. It is never part of the export.
 
 **Export Transparent PNG** downloads a PNG with a real alpha channel (the ground
 shadow, if on, exports as soft translucent pixels that composite cleanly).
+
+**Copy to clipboard** puts the same PNG on the clipboard, to paste straight into slides,
+docs or design tools (shown only in browsers that support copying images).
 
 - **1×–4×** sets the resolution.
 - **Trim to robot** (on) crops to the robot and renders that region at full resolution,

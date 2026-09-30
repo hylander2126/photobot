@@ -7,6 +7,8 @@ import { PRESETS } from './themes';
 const DEG = 180 / Math.PI;
 const JOINT_NAMES = ['Base', 'Shoulder', 'Elbow', 'Wrist'];
 const SCALES = [1, 2, 3, 4];
+// Image clipboard support (ClipboardItem) is missing in some browsers; hide the button there.
+const CAN_COPY_IMAGE = typeof ClipboardItem !== 'undefined' && !!navigator.clipboard?.write;
 
 /** Apply the scene-side parts of a share link. The tool goes first: the pose depends on its length. */
 function applyShared(scene: RobotScene, s: Partial<SharedState>) {
@@ -34,6 +36,7 @@ export default function App() {
   const [phiDraftBad, setPhiDraftBad] = useState(false);
   const phiAtFocus = useRef(0);
   const [exporting, setExporting] = useState(false);
+  const [pngCopy, setPngCopy] = useState<'idle' | 'copying' | 'copied' | 'failed'>('idle');
   const [copied, setCopied] = useState(false);
   // Shown only when the clipboard is unavailable, for copying by hand.
   const [manualLink, setManualLink] = useState<string | null>(null);
@@ -164,6 +167,24 @@ export default function App() {
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     } finally {
       setExporting(false);
+    }
+  };
+
+  const copyPng = async () => {
+    const s = sceneRef.current;
+    if (!s) return;
+    setExporting(true);
+    setPngCopy('copying');
+    try {
+      // Hand the clipboard a pending blob rather than awaiting it first: Safari only
+      // allows the write while it is still tied to the click.
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': s.exportPNG(scale, trim) })]);
+      setPngCopy('copied');
+    } catch {
+      setPngCopy('failed');
+    } finally {
+      setExporting(false);
+      window.setTimeout(() => setPngCopy('idle'), 1800);
     }
   };
 
@@ -339,8 +360,13 @@ export default function App() {
             Trim to robot
           </label>
           <button className="primary" onClick={exportPng} disabled={exporting}>
-            {exporting ? 'Exporting…' : 'Export Transparent PNG'}
+            {exporting && pngCopy === 'idle' ? 'Exporting…' : 'Export Transparent PNG'}
           </button>
+          {CAN_COPY_IMAGE && (
+            <button className="ghost" onClick={copyPng} disabled={exporting}>
+              {{ idle: 'Copy to clipboard', copying: 'Copying…', copied: 'Copied ✓ Paste anywhere', failed: 'Copy failed. Use Export' }[pngCopy]}
+            </button>
+          )}
           {size && (
             <p className="hint center">
               {trim
